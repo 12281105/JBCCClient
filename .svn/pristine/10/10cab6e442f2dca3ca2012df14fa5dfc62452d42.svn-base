@@ -1,0 +1,55 @@
+package com.tiandetech.jbcc.thrift;
+
+import org.apache.thrift.TException;
+import org.apache.thrift.server.TServer;
+import org.apache.thrift.server.TThreadPoolServer;
+import org.apache.thrift.transport.TServerSocket;
+import org.apache.thrift.transport.TServerTransport;
+
+public class JBCCTestHandler implements JBCCService.Iface {
+
+
+	@Override
+	public JBCCResult insert(String content, String TBCName) throws JBCCException, TException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public JBCCResult select(String TBCName, String condition) throws JBCCException, TException {
+		System.out.println(TBCName + ":" + condition);
+		return null;
+	}
+
+	@Override
+	public JBCCResult fselect(String TBCName, String condition) throws JBCCException, TException {
+		System.out.println(TBCName + ":" + condition);
+		JBCCResult returnresult = new JBCCResult();
+		return returnresult;
+	}
+
+	@Override
+	public JBCCResult createTBC(String TBCdef) throws JBCCException, TException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public JBCCResult createABC(String ABCdef) throws JBCCException, TException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+	
+
+    public static void main(String args[])
+                    throws Exception
+    {
+            TServerTransport transport=new TServerSocket(9090);
+            TServer server=new TThreadPoolServer(new TThreadPoolServer.Args(transport)
+                .processor(new JBCCService.Processor(new JBCCTestHandler())));
+            System.out.println("Started");
+            server.serve();
+    }
+
+	
+}

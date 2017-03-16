@@ -1,0 +1,72 @@
+package com.tiandetech.jbcc.thrift.client;
+
+import java.util.ArrayList;
+
+import org.apache.thrift.TException;
+import org.apache.thrift.async.AsyncMethodCallback;
+
+import com.tiandetech.blockchain.thrift.blockchainNetwork.JBCCResult;
+import com.tiandetech.blockchain.thrift.blockchainNetwork.JBCCService.AsyncClient;
+
+public class AsyncSelectRequest extends AsyncConnection.ThriftRequest {
+
+	private String _condition;
+	private String _TBCName;
+	private ArrayList<JBCCResult> results;
+	
+	
+	
+	
+    public String get_condition() {
+		return _condition;
+	}
+
+	public void set_condition(String _condition) {
+		this._condition = _condition;
+	}
+
+	public String get_TBCName() {
+		return _TBCName;
+	}
+
+	public void set_TBCName(String _TBCName) {
+		this._TBCName = _TBCName;
+	}
+
+	@Override
+    public void on(AsyncClient cli) {
+        try {
+            cli.select(_TBCName, _condition, new AsyncMethodCallback<AsyncClient.select_call>() {
+
+                @Override
+                public void onComplete(AsyncClient.select_call response) {
+                    try {
+                        System.out.println("AsynSelectCall result =:" + response.getResult());
+                        results.add(response.getResult());
+                    } catch (TException e) {
+                        e.printStackTrace();
+                    } finally {
+                        //latch.countDown();
+                    }
+                }
+
+                @Override
+                public void onError(Exception e) {
+                    System.out.println("onError :" + e.getMessage());
+                    //latch.countDown();
+                }
+            });
+        } catch (TException e) {
+            e.printStackTrace();
+        }
+    }
+
+	public ArrayList<JBCCResult> getResults() {
+		return results;
+	}
+
+	public void setResults(ArrayList<JBCCResult> results) {
+		this.results = results;
+	}
+	
+}

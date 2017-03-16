@@ -1,0 +1,121 @@
+package com.tiandetech.jbcc.thrift;
+
+import com.alibaba.fastjson.JSONObject;
+
+public class TDLParser {
+
+    private static String[] keywords = new String[]{"select", "from", "insert", "update", "delete", "where", "alter", "left", "join"};
+
+    public static TDLValidateResult validateTableJson(String jsonStr) {
+
+        TDLValidateResult tdlValidateResult = new TDLValidateResult();
+
+        JSONObject json = JSONObject.parseObject(jsonStr);
+
+        if (json.get("tableName") == null) {
+            tdlValidateResult.setSuccess(false);
+            tdlValidateResult.setMessage("tableName is not null");
+            return tdlValidateResult;
+        }
+
+        String tableName = json.getString("tableName");
+        if (tableName.equals("")) {
+            tdlValidateResult.setSuccess(false);
+            tdlValidateResult.setMessage("tableName is not empty");
+            return tdlValidateResult;
+        }
+
+        if (tableName.length() > 512) {
+            tdlValidateResult.setSuccess(false);
+            tdlValidateResult.setMessage("tableName is max length is 512");
+            return tdlValidateResult;
+        }
+
+        for (String keyword : keywords) {
+
+            if (json.get(keyword) != null) {
+                tdlValidateResult.setSuccess(false);
+                tdlValidateResult.setMessage("column:" + keyword + " is keyword");
+                return tdlValidateResult;
+            }
+
+            String keywordValue = json.getString(keyword);
+            
+            if (keywordValue == null)
+            {
+            	continue;
+            }
+            if (!keywordValue.equals("")) {
+                tdlValidateResult.setSuccess(false);
+                tdlValidateResult.setMessage("column:" + keyword + " is keyword");
+                return tdlValidateResult;
+            }
+
+        }
+
+
+        return tdlValidateResult;
+
+    }
+
+
+    public TDLValidateResult validateViewJson(String jsonStr) {
+
+        TDLValidateResult tdlValidateResult = new TDLValidateResult();
+
+        JSONObject json = JSONObject.parseObject(jsonStr);
+
+        if (json.get("viewName") == null) {
+            tdlValidateResult.setSuccess(false);
+            tdlValidateResult.setMessage("viewName is not null");
+            return tdlValidateResult;
+        }
+
+        String tableName = json.getString("viewName");
+        if (tableName.equals("")) {
+            tdlValidateResult.setSuccess(false);
+            tdlValidateResult.setMessage("viewName is not empty");
+            return tdlValidateResult;
+        }
+
+        if (tableName.length() > 512) {
+            tdlValidateResult.setSuccess(false);
+            tdlValidateResult.setMessage("viewName is max length is 512");
+            return tdlValidateResult;
+        }
+
+        for (String keyword : keywords) {
+
+            if (json.get(keyword) != null) {
+                tdlValidateResult.setSuccess(false);
+                tdlValidateResult.setMessage("column:" + keyword + " is keyword");
+                return tdlValidateResult;
+            }
+
+            String keywordValue = json.getString(keyword);
+            if (!keywordValue.equals("")) {
+                tdlValidateResult.setSuccess(false);
+                tdlValidateResult.setMessage("column:" + keyword + " is keyword");
+                return tdlValidateResult;
+            }
+
+        }
+
+        return tdlValidateResult;
+
+    }
+
+    public static void main(String[] args) {
+
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("tableName", "sad");
+        jsonObject.put("select", "sad");
+
+        TDLParser tdlParser = new TDLParser();
+        TDLValidateResult tdlValidateResult = tdlParser.validateTableJson(jsonObject.toString());
+        System.out.println(tdlValidateResult.getSuccess());
+        System.out.println(tdlValidateResult.getMessage());
+
+    }
+
+}

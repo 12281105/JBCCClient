@@ -1,0 +1,92 @@
+package com.tiandetech.jbcc.thrift.client;
+
+import java.util.Map;
+
+import com.alibaba.fastjson.JSONObject;
+
+public class TransactionBase {
+	
+	 private int id;
+	 public int blockId;
+	 private String edittime;
+	 private String uuid;
+	 private String publicKey;
+	 private String signature;
+	 protected String blockchainType;
+	 private Map<String, Object> userdata;
+	 
+	 /*
+	 private String studentname;
+	 private int studentid;
+	 
+	 
+	public String getStudentname() {
+		return studentname;
+	}
+	public void setStudentname(String studentname) {
+		this.studentname = studentname;
+	}
+	public int getStudentid() {
+		return studentid;
+	}
+	public void setStudentid(int studentid) {
+		this.studentid = studentid;
+	}*/
+	
+	
+	 
+	
+	public void setUserdata(Map<String, Object> userdata) {
+		this.userdata = userdata;
+	}
+	
+	public Map<String, Object> getUserdata() {
+		return userdata;
+	}
+	
+	public int getId() {
+		return id;
+	}
+	public void setId(int id) {
+		this.id = id;
+	}
+	public int getBlockId() {
+		return blockId;
+	}
+	public void setBlockId(int blockId) {
+		this.blockId = blockId;
+	}
+	public String getEdittime() {
+		return edittime;
+	}
+	public void setEdittime(String edittime) {
+		this.edittime = edittime;
+	}
+	public String getUuid() {
+		return uuid;
+	}
+	public void setUuid(String uuid) {
+		this.uuid = uuid;
+	}
+	public String getPublicKey() {
+		return publicKey;
+	}
+	public void setPublicKey(String publicKey) {
+		this.publicKey = publicKey;
+	}
+	public String getSignature() {
+		return signature;
+	}
+	public void setSignature(String signature) {
+		this.signature = signature;
+	}
+	public String getBlockchainType() {
+		return blockchainType;
+	}
+	public void setBlockchainType(String blockchainType) {
+		this.blockchainType = blockchainType;
+	}
+
+
+
+}

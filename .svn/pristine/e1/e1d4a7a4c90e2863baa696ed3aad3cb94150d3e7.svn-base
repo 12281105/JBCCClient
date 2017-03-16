@@ -1,0 +1,145 @@
+package com.tiandetech.jbcc.thrift.client;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import org.apache.thrift.TException;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.tiandetech.blockchain.thrift.blockchainNetwork.JBCCException;
+import com.tiandetech.blockchain.thrift.blockchainNetwork.JBCCResult;
+
+public class Main {
+
+	public static void main(String[] args) throws TException {
+		// TODO Auto-generated method stub
+		
+		/*
+    	List<String> mylist = new ArrayList<String>();
+    	JBCCClient myJBCCClient = JBCCClient.getInstance();
+    	myJBCCClient.InitializeClient("192.168.0.91:2181,192.168.0.92:2181,192.168.0.93:2181", "/tdng-dw");
+    	
+    	mylist = myJBCCClient.GetNodeAddress("/tdng_dw");
+    	
+    	System.out.println(mylist.size());
+    	//System.out.println(mylist.get(0));
+    	
+    	*/
+            JBCCClient myJBCCClient = JBCCClient.getInstance();
+            myJBCCClient.InitializeClient("192.168.0.91:2181,192.168.0.92:2181,192.168.0.93:2181", "/tdng_dw");
+            myJBCCClient.OpenSyncConnection();
+            long start=System.currentTimeMillis();
+            
+            
+            
+            Map<String, String> tabledef = new HashMap<String,String>();
+            //jsonObj.put("tableName", "test");
+            //jsonObj.put("studentid", Integer.class.getSimpleName());
+            //jsonObj.put("studentname", String.class.getSimpleName());
+            tabledef.put("studentid", Integer.class.getSimpleName());
+            tabledef.put("studentname", String.class.getSimpleName());
+            
+            
+            TransactionBase thistransaction = new TransactionBase();
+            
+            UUID uuid = UUID.randomUUID();
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String timestamp = sdf.format(new Date());
+         
+            thistransaction.setEdittime(timestamp);
+            thistransaction.setUuid(uuid.toString());
+            thistransaction.setBlockchainType("ABC");
+            //thistransaction.setStudentid(100);
+            //thistransaction.setStudentname("lmd");
+            
+            HashMap<String, Object> usermap = new HashMap<String, Object>();
+            //JSONObject usermap = new JSONObject();
+            
+            
+            usermap.put("studentid", 100);
+            usermap.put("studentname", "lmd");
+            
+            thistransaction.setUserdata(usermap);
+            
+            
+            //thistransaction.setId(32234234);
+            //thistransaction.setUuid("adasdasdtest");
+            //thistransaction.setBlockchainType("ABC");
+            //thistransaction.setUserdata(jsonObj);
+            
+
+            
+        	try
+        	{
+        		List<JBCCResult> returnresult = myJBCCClient.createABC( "ABC", tabledef);
+            	System.out.println(returnresult.get(0).getStatus());
+        		
+        	}
+        	catch (JBCCException e){}
+            
+            myJBCCClient.finsertToBC(usermap, "ABC");
+            
+            try
+            {
+            	JBCCResult thisresult = myJBCCClient.fastselectFromBC("transactionABC", "studentid=100");
+            	String message = thisresult.getMessage();
+            	QueryResult results = JSON.parseObject(message, QueryResult.class);
+            
+            	System.out.println(results.getResultlist().size());
+            	
+            } catch (JBCCException e){}
+            
+            ArrayList<JBCCResult> asyncresults = new ArrayList<JBCCResult>();
+            List<Map<String, Object>> usermaplist = new ArrayList<Map<String, Object>>();
+            
+            usermaplist.add(usermap);
+            usermaplist.add(usermap);
+            usermaplist.add(usermap);
+            
+            
+ 
+            
+            myJBCCClient.CloseSyncConnection();
+            
+            myJBCCClient.OpenAsyncConnection(16, 16);
+            
+            myJBCCClient.AsyncMultiInsertToBC(usermaplist, "ABC", asyncresults, 3);
+            myJBCCClient.AsyncMultiInsertToBC(usermaplist, "ABC", asyncresults, 3);
+            myJBCCClient.AsyncMultiInsertToBC(usermaplist, "ABC", asyncresults, 3);
+            
+            
+            for (int i = 0; i < 16; i++) {
+                //myJBCCClient.AsyncInsertToBC(thistransaction, asyncresults);
+            	//myJBCCClient.asyncSelectFromBC("TBCName", "condition", asyncresults);
+                         // Use the pool
+            }
+            
+            myJBCCClient.CloseAsyncConnection();
+            
+            
+            long end=System.currentTimeMillis();
+            System.out.println((end-start)+" ms");
+             
+        	while (true) {
+    			try {
+					Thread.sleep(1000);
+					/*System.out.println("Async Result"+asyncresults.size());
+					if (+asyncresults.size()>0)
+					{
+						System.out.println("Async result status"+asyncresults.get(0).getStatus());
+					}*/
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+    		}
+
+	}
+
+}

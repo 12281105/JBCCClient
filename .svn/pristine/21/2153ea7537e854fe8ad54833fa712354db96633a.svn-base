@@ -1,0 +1,1047 @@
+package com.tiandetech.jbcc.thrift.client;
+
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
+
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.recipes.cache.PathChildrenCache;
+import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent;
+import org.apache.curator.framework.recipes.cache.PathChildrenCacheListener;
+import org.apache.curator.framework.recipes.cache.PathChildrenCache.StartMode;
+import org.apache.thrift.TException;
+import org.apache.thrift.async.AsyncMethodCallback;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.transport.TSSLTransportFactory;
+import org.apache.thrift.transport.TSocket;
+import org.apache.thrift.transport.TTransport;
+import org.apache.thrift.transport.TTransportException;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.asm.Type;
+import com.tiandetech.blockchain.thrift.blockchainNetwork.JBCCException;
+import com.tiandetech.blockchain.thrift.blockchainNetwork.JBCCResult;
+import com.tiandetech.blockchain.thrift.blockchainNetwork.JBCCService;
+import com.tiandetech.blockchain.thrift.blockchainNetwork.JBCCService.AsyncClient;
+import com.tiandetech.util.BCKeeperSharies;
+import com.tiandetech.util.BCKeeperUtil;
+
+
+
+
+
+public class JBCCClient {
+	
+	private static final JBCCClient instance = new JBCCClient();
+	
+	private final int DEFAULTSYNCPORT = 8082;
+	private final int DEFAULTASYNCPORT = 8083;
+
+	
+	private HashMap<String, ConnectionStruct> syncConnectionHashMap = new HashMap<String, ConnectionStruct>();
+	private HashMap<String, AsyncConnection> asyncConnectionHashMap = new HashMap<String, AsyncConnection>();
+	
+	private String zookeeperrootpath = null;
+	private String zookeeperhosts = null;
+
+	private int DEFAULTMAXCLIENT = 8;
+	private int DEFAULTMAXCLIENTPERTHREAD = 8;
+
+	
+	private JBCCClient() {
+	}
+	
+	
+	/**客户端为单例，索要实例
+	 * 
+	 * @return  JBCCClient实例
+	 */
+	public static JBCCClient getInstance(){
+        return instance;
+    }
+	
+	/**初始化客户端，链接zookeeper查询节点地址和状态
+	 * 
+	 * @param zookeeperhosts  zookeeper服务器IP地址，用逗号间隔
+	 * @param zookeeperrootpath zookeeper注册的rootpath
+	 */
+	public void InitializeClient(String zookeeperhosts, String zookeeperrootpath)
+	{
+		this.zookeeperrootpath = zookeeperrootpath;
+		this.zookeeperhosts = zookeeperhosts;
+		BCKeeperUtil.zookeeperConnectString = zookeeperhosts;
+		StartZooKeeperWatch(zookeeperrootpath);
+		System.out.println("zookeeper service watch started");
+		
+	}
+	
+	private void StartZooKeeperWatch(String zkrootpath) {
+		 final PathChildrenCache childrenCache4HeartBeat = new PathChildrenCache(BCKeeperUtil.getClient(), zkrootpath+"/online", true);
+		
+		 try {
+			childrenCache4HeartBeat.start(StartMode.POST_INITIALIZED_EVENT);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	        childrenCache4HeartBeat.getListenable().addListener(
+	            new PathChildrenCacheListener() {
+	                @Override
+	                public void childEvent(CuratorFramework client, PathChildrenCacheEvent event)
+	                        throws Exception {
+	                        switch (event.getType()) {
+	                        case CHILD_ADDED:
+	                            
+	                        	UpdateActiveConnections();
+	                        	//System.out.println("New Node Detected");
+	                            
+	                            break;
+	                        case CHILD_REMOVED:
+	                        	
+	                        	UpdateActiveConnections();
+	                        	//System.out.println("Node Removed");
+	                        	
+	                        	break;
+	                        case CHILD_UPDATED:
+	                        	
+	                        	UpdateActiveConnections();
+	                        	//System.out.println("Nodes Updated");
+	                        	
+	                        	break;
+	                        case CONNECTION_RECONNECTED:
+	                        	//UpdateActiveConnections();
+	                        	break;
+	                        default:
+	                            break;
+	                    }
+	                }
+	            }
+	        );
+		 
+	}
+	
+	private void UpdateActiveConnections()
+	{
+		//List<String> addresses = new ArrayList<String>();
+		List<String> addresses = GetNodeAddress(zookeeperrootpath);
+
+		if (!syncConnectionHashMap.isEmpty())
+		{
+			for (String entry : addresses) 
+			{
+				if(!syncConnectionHashMap.containsKey(entry))
+				{
+					TTransport transport;
+					transport = new TSocket(entry, this.DEFAULTSYNCPORT);
+					try {
+						transport.open();
+					} catch (TTransportException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					TProtocol protocol = new TBinaryProtocol(transport);
+					JBCCService.Client myJBCCClient=new JBCCService.Client(protocol);
+					ConnectionStruct _connectionStruct = new ConnectionStruct(myJBCCClient, transport, protocol);
+					syncConnectionHashMap.put(entry, _connectionStruct);
+				}
+				
+			}
+			
+			List<String> removednodes = new ArrayList<String>();
+			
+			for (Map.Entry<String,  ConnectionStruct> entry : syncConnectionHashMap.entrySet()) 
+			{
+				
+				if(!addresses.contains(entry.getKey()))
+				{
+					entry.getValue().get_transport().close();
+					removednodes.add(entry.getKey());
+				}
+				
+			}
+			
+			for (String entry : removednodes)
+			{
+				syncConnectionHashMap.remove(entry);
+			}
+
+		}
+		
+		
+		
+		if (!asyncConnectionHashMap.isEmpty())
+		{
+			for (String entry : addresses) 
+			{
+				if(!asyncConnectionHashMap.containsKey(entry))
+				{
+					
+					try
+					{
+						AsyncConnection t = new AsyncConnection(this.DEFAULTMAXCLIENT, this.DEFAULTMAXCLIENTPERTHREAD, entry, this.DEFAULTASYNCPORT);
+						asyncConnectionHashMap.put(entry, t);
+					}catch (Exception e)
+					{}
+					
+				}
+				
+			}
+			
+			List<String> removednodes = new ArrayList<String>();
+			
+			for (Map.Entry<String,  AsyncConnection> entry : asyncConnectionHashMap.entrySet()) 
+			{
+				
+				if(!addresses.contains(entry.getKey()))
+				{
+					entry.getValue().CloseConnections();
+					removednodes.add(entry.getKey());
+				}
+				
+			}
+			
+			for (String entry : removednodes)
+			{
+				asyncConnectionHashMap.remove(entry);
+			}
+		}
+		
+		
+		
+		return;
+	}
+
+
+	//from zookeeper
+	private List<String> GetNodeAddress(String rootpath)
+	{
+		List<String> childs = null;
+		
+		try {
+			childs = BCKeeperUtil.getClient().getChildren().forPath(rootpath+"/online");
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	    
+		List<String> IPAddresses = new ArrayList<String>();
+		
+		if (childs != null)
+		{
+			for(String child : childs){
+		    	byte[] data = null;
+				try {
+					data = BCKeeperUtil.getClient().getData().forPath(rootpath+"/online/"+child);
+				} catch (Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+		    	JSONObject json = null;
+		    	if (data != null)
+		    	{
+					try {
+						json = JSON.parseObject(new String(data,"utf-8"));
+					} catch (UnsupportedEncodingException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+		    	}
+		    	if (json != null)
+		    	{
+		    		String ip = json.getString("ip");
+		    		if(ip!=null && !"".equals(ip.trim())){
+		    			IPAddresses.add(ip);
+		    		}
+		    	}
+		    }
+		}
+		
+		return IPAddresses;	
+		
+	}
+	
+
+	//Change to service discovery
+	private JBCCResult ConnectToService(String serviceName) throws TException
+	{
+			JBCCResult _jbccresult = new JBCCResult();
+			
+			//List<String> addresses = new ArrayList<String>();
+			List<String> addresses = GetNodeAddress(this.zookeeperrootpath);
+			//List<String> addresses = new ArrayList<String>();
+			//addresses.add("localhost");
+			
+			if (addresses == null || addresses.isEmpty())
+			{
+				_jbccresult.setStatus(0);
+				_jbccresult.setMessage("No addresses from service discovery.");
+				return _jbccresult;
+			}
+			
+			try{
+				for (String address : addresses)
+				{
+					TTransport transport;
+					transport = new TSocket(address, this.DEFAULTSYNCPORT);
+					transport.open();
+					TProtocol protocol = new TBinaryProtocol(transport);
+					JBCCService.Client myJBCCClient=new JBCCService.Client(protocol);
+					ConnectionStruct _connectionStruct = new ConnectionStruct(myJBCCClient, transport, protocol);
+					syncConnectionHashMap.put(address, _connectionStruct);
+				}
+			}
+			catch(TException e)
+			{
+				_jbccresult.setStatus(0);
+				_jbccresult.setMessage("Thrift exception.");
+				return _jbccresult;
+			}
+			
+			
+			
+			_jbccresult.setStatus(1);
+			return _jbccresult;
+	}
+	
+	//Change to service discovery
+	private JBCCResult ConnectToServiceSecure(String serviceName, String truststore, String password) throws TException
+		{
+				int PORT = 7911;
+				JBCCResult _jbccresult = new JBCCResult();
+				
+				//List<String> addresses = GetNodeAddress("rootpath");
+				List<String> addresses = new ArrayList<String>();
+				addresses.add("localhost");
+				
+				if (addresses == null || addresses.isEmpty())
+				{
+					_jbccresult.setStatus(0);
+					_jbccresult.setMessage("No addresses from discovery.");
+					return _jbccresult;
+				}
+				
+				try{
+					for (String address : addresses)
+					{
+						TTransport transport;
+						
+						TSSLTransportFactory.TSSLTransportParameters params =
+			                    new TSSLTransportFactory.TSSLTransportParameters();
+			            params.setTrustStore(truststore, password);
+			 
+			            transport = TSSLTransportFactory.getClientSocket(address, PORT, 10000, params);
+			            TProtocol protocol = new TBinaryProtocol(transport);
+			            JBCCService.Client client = new JBCCService.Client(protocol);
+						ConnectionStruct _connectionStruct = new ConnectionStruct(client, transport, protocol);
+						syncConnectionHashMap.put(address, _connectionStruct);
+					}
+				}
+				catch(TException e)
+				{
+					_jbccresult.setStatus(0);
+					_jbccresult.setMessage("Thrift exception.");
+					return _jbccresult;
+				}
+				
+				_jbccresult.setStatus(1);
+				return _jbccresult;
+		}
+	
+	
+	/**打开与节点群的同步连接
+	 * 
+	 * @return JBCCResult.status=0为成常，1为异常 
+	 * @throws TException Thrift异常
+	 */
+	public JBCCResult OpenSyncConnection() throws TException
+	{
+		return ConnectToService("servicename");
+	}
+	
+	/**关闭与节点群的同步连接
+	 * 
+	 * @return JBCCResult.status=0为成常，1为异常 
+	 */
+	
+	public JBCCResult CloseSyncConnection()
+	{
+		JBCCResult _jbccresult = new JBCCResult();
+		
+		for (Map.Entry<String,  ConnectionStruct> entry : syncConnectionHashMap.entrySet()) 
+		{
+			entry.getValue().get_transport().close();
+		}
+		
+		syncConnectionHashMap.clear();
+		
+		_jbccresult.setStatus(1);
+		return _jbccresult;
+	}
+	
+
+	private JBCCResult OpenSecureConnection(String servicename, String truststore, String password) throws TException
+	{
+		return ConnectToServiceSecure(servicename, truststore, password);
+	}
+	
+	
+	/**打开与节点群的异步连接
+	 * 
+	 * @param max_client 最多client实例数值
+	 * @param max_client_per_thread 每条线上最多client实例数值
+	 * @return JBCCResult.status=0为成常，1为异常 
+	 * @throws TException Thrift异常
+	 */
+	public JBCCResult OpenAsyncConnection(int max_client, int max_client_per_thread) throws TException
+	{
+		//int PORT = 8989;//port
+		
+		JBCCResult _jbccresult = new JBCCResult();
+		
+		//List<String> addresses = new ArrayList<String>();
+		List<String> addresses = GetNodeAddress(this.zookeeperrootpath);
+		//addresses.add(this.testingIP);
+		
+		//List<String> addresses = new ArrayList<String>();
+		//addresses.add("localhost");
+				
+		if (addresses == null || addresses.isEmpty())
+		{
+			_jbccresult.setStatus(0);
+			_jbccresult.setMessage("No addresses from discovery.");
+			return _jbccresult;
+		}
+		
+		try{
+			for (String address : addresses)
+			{
+
+				AsyncConnection t = new AsyncConnection(max_client, max_client_per_thread, address, this.DEFAULTASYNCPORT);
+				asyncConnectionHashMap.put(address, t);
+			}
+		}
+		catch(IOException e)
+		{
+			_jbccresult.setStatus(0);
+			_jbccresult.setMessage("Thrift IO exception.");
+			return _jbccresult;
+		}
+		
+		_jbccresult.setStatus(1);
+		return _jbccresult;
+	}
+	
+	/**用默认设置打开与节点群的异步连接
+	 * 
+	 * @return JBCCResult.status=0为成常，1为异常 
+	 * @throws TException Thrift异常
+	 */
+	
+	public JBCCResult OpenAsyncConnection() throws TException
+	{
+		int PORT = 8989;//port
+		
+		JBCCResult _jbccresult = new JBCCResult();
+		
+		//List<String> addresses = new ArrayList<String>();
+		List<String> addresses = GetNodeAddress(this.zookeeperrootpath);
+		//addresses.add(this.testingIP);
+		
+		//List<String> addresses = GetNodeAddress("rootpath");
+		//List<String> addresses = new ArrayList<String>();
+		//addresses.add("localhost");
+			
+		
+		
+		if (addresses == null || addresses.isEmpty())
+		{
+			_jbccresult.setStatus(0);
+			_jbccresult.setMessage("No addresses from discovery.");
+			return _jbccresult;
+		}
+		
+		try{
+			for (String address : addresses)
+			{
+
+				AsyncConnection t = new AsyncConnection(this.DEFAULTMAXCLIENT, this.DEFAULTMAXCLIENTPERTHREAD, address, PORT);
+				asyncConnectionHashMap.put(address, t);
+			}
+		}
+		catch(IOException e)
+		{
+			_jbccresult.setStatus(0);
+			_jbccresult.setMessage("Thrift IO exception.");
+			return _jbccresult;
+		}
+		
+		_jbccresult.setStatus(1);
+		return _jbccresult;
+	}
+	
+	/**
+	 * 
+	 * @return JBCCResult.status=0为成常，1为异常 
+	 */
+	
+	public JBCCResult CloseAsyncConnection()
+	{
+		JBCCResult _jbccresult = new JBCCResult();
+		
+		for (Map.Entry<String,  AsyncConnection> entry : asyncConnectionHashMap.entrySet()) 
+		{
+			entry.getValue().CloseConnections();
+		}
+		
+		asyncConnectionHashMap.clear();
+		
+		_jbccresult.setStatus(1);
+		return _jbccresult;
+	}
+	
+	/** 异步插入交易
+	 * 
+	 * @param transact TransactionBase类 
+	 * @param results 收集异步结果的ArrayList
+	 */
+	
+	public void AsyncInsertToBC(TransactionBase transact, ArrayList<JBCCResult> results)
+	{
+		JBCCResult returnresult = new JBCCResult();
+		
+		if (asyncConnectionHashMap.isEmpty())
+		{
+			returnresult.setStatus(0);
+			returnresult.setMessage("No open async connections.");
+			results.add(returnresult);
+			return;
+		}
+		
+		String jsonString = JSON.toJSONString(transact);
+		
+		if (jsonString == null)
+		{
+			returnresult.setStatus(0);
+			returnresult.setMessage("Serialization failed.");
+			results.add(returnresult);
+			return;
+		}
+
+		for (Map.Entry<String,  AsyncConnection> entry : asyncConnectionHashMap.entrySet()) 
+		{
+			if (entry.getValue() == null)
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("Could not retrieve Thrift client.");
+				results.add(returnresult);
+				return;
+			}
+	
+			AsyncInsertRequest _insertRequest = new AsyncInsertRequest();
+			_insertRequest.set_content(jsonString);
+			_insertRequest.set_TBCName(transact.blockchainType);
+			_insertRequest.setResults(results);
+			entry.getValue().req(_insertRequest);
+
+		}
+		
+	    return;
+	}
+	
+	
+	public void AsyncMultiInsertToBC(List<Map<String, Object>> transactlist, String BCName, ArrayList<JBCCResult> results, int delay)
+	{
+		JBCCResult returnresult = new JBCCResult();
+		Map<String, String> transactmap = new HashMap<String, String>();
+		
+		if (asyncConnectionHashMap.isEmpty())
+		{
+			returnresult.setStatus(0);
+			returnresult.setMessage("No open async connections.");
+			results.add(returnresult);
+			return;
+		}
+		
+		for (Map<String, Object> transact : transactlist)
+		{
+			transact.put("blockchainType", BCName);
+		    UUID uuid = UUID.randomUUID();
+	        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+	        String timestamp = sdf.format(new Date());
+	     
+	        transact.put("edittime", timestamp);
+	        transact.put("uuid", uuid.toString());
+	        
+	        String jsonString = JSON.toJSONString(this.maptoJSONObject(transact));
+	        transactmap.put(uuid.toString(), jsonString);
+		}
+				
+		for (Map.Entry<String,  AsyncConnection> entry : asyncConnectionHashMap.entrySet()) 
+		{
+			if (entry.getValue() == null)
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("Could not retrieve Thrift client.");
+				results.add(returnresult);
+				return;
+			}
+	
+			AsyncMultiInsertRequest _multiinsertRequest = new AsyncMultiInsertRequest();
+			_multiinsertRequest.set_delay(delay);
+			_multiinsertRequest.set_myJBCCClient(this.getInstance());
+			_multiinsertRequest.set_results(results);
+			_multiinsertRequest.set_TBCName(BCName);
+			_multiinsertRequest.set_transactmap(transactmap);
+			
+			entry.getValue().req(_multiinsertRequest);
+
+		}
+		
+		
+		
+		
+	}
+	
+	/** 同步插入交易
+	 * 
+	 * @param transact TransactionBase类 
+	 * @return JBCCResult.status=0为成常，1为异常 
+	 * @throws TException Thrift异常
+	 */
+	public List<JBCCResult> insertToBC (TransactionBase transact) throws TException
+	{
+		
+			ArrayList<JBCCResult> returnresult = new ArrayList<JBCCResult>();
+			JBCCResult _returnresult = new JBCCResult();
+			
+			if (syncConnectionHashMap.isEmpty())
+			{
+				_returnresult.setStatus(0);
+				_returnresult.setMessage("No open connections.");
+				returnresult.add(_returnresult);
+				return returnresult;
+			}
+			
+			String jsonString = JSON.toJSONString(transact);
+			
+			if (jsonString == null)
+			{
+				_returnresult.setStatus(0);
+				_returnresult.setMessage("Serialization failed.");
+				returnresult.add(_returnresult);
+				return returnresult;
+			}
+			
+			for (Map.Entry<String,  ConnectionStruct> entry : syncConnectionHashMap.entrySet()) 
+			{
+				
+				JBCCService.Client myJBCCClient=entry.getValue().get_client();
+				
+				if (myJBCCClient == null)
+				{
+					_returnresult.setStatus(0);
+					_returnresult.setMessage("Could not retrieve thrift client");
+					returnresult.add(_returnresult);
+					return returnresult;
+				}
+				
+				try
+		        {	
+					JBCCResult returnresultback = myJBCCClient.insert(transact.blockchainType, jsonString);   
+					returnresult.add(returnresultback);
+		        } catch (JBCCException e){
+		        	_returnresult.setStatus(0);
+					_returnresult.setMessage(e.getMessage());
+					returnresult.add(_returnresult);
+					return returnresult;
+		        }
+
+			}
+			
+		    return returnresult;
+        
+		
+	} 
+	/**快速插入交易
+	 * 
+	 * @param transact TransactionBase类 
+	 * @return JBCCResult.status=0为成常，1为异常，2为无状态
+	 * @throws TException Thrift异常
+	 */
+	public List<JBCCResult> finsertToBC (Map<String, Object> transact, String BCName) throws TException
+	{
+		
+			ArrayList<JBCCResult> returnresult = new ArrayList<JBCCResult>();
+			JBCCResult _returnresult = new JBCCResult();
+			
+			if (syncConnectionHashMap.isEmpty())
+			{
+				_returnresult.setStatus(0);
+				_returnresult.setMessage("No open connections.");
+				returnresult.add(_returnresult);
+				return returnresult;
+			}
+			
+			transact.put("blockchainType", BCName);
+		
+			
+		    UUID uuid = UUID.randomUUID();
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String timestamp = sdf.format(new Date());
+         
+            transact.put("edittime", timestamp);
+            transact.put("uuid", uuid.toString());
+			
+			String jsonString = JSON.toJSONString(this.maptoJSONObject(transact));
+			
+			if (jsonString == null)
+			{
+				_returnresult.setStatus(0);
+				_returnresult.setMessage("Serialization failed.");
+				returnresult.add(_returnresult);
+				return returnresult;
+			}
+			
+			for (Map.Entry<String,  ConnectionStruct> entry : syncConnectionHashMap.entrySet()) 
+			{
+				
+				JBCCService.Client myJBCCClient=entry.getValue().get_client();
+				
+				if (myJBCCClient == null)
+				{
+					_returnresult.setStatus(0);
+					_returnresult.setMessage("Could not retrieve thrift client");
+					returnresult.add(_returnresult);
+					return returnresult;
+				}
+				
+				try
+		        {	
+					JBCCResult returnresultback = myJBCCClient.finsert(BCName, jsonString);   
+					returnresult.add(returnresultback);
+		        } catch (JBCCException e){
+		        	_returnresult.setStatus(0);
+					_returnresult.setMessage(e.getMessage());
+					returnresult.add(_returnresult);
+					return returnresult;
+		        }
+
+			}
+			
+		    return returnresult;
+        
+		
+	} 
+	
+
+	private List<JBCCResult> selectFromBC (String TBCName, String condition) throws TException
+	{
+		
+			ArrayList<JBCCResult> returnresult = new ArrayList<JBCCResult>();
+			JBCCResult _returnresult = new JBCCResult();
+			
+			if (syncConnectionHashMap.isEmpty())
+			{
+				_returnresult.setStatus(0);
+				_returnresult.setMessage("No open connections.");
+				returnresult.add(_returnresult);
+				return returnresult;
+			}
+			
+			for (Map.Entry<String,  ConnectionStruct> entry : syncConnectionHashMap.entrySet()) 
+			{
+
+				
+				JBCCService.Client myJBCCClient=entry.getValue().get_client();
+				
+				if (myJBCCClient == null)
+				{
+					_returnresult.setStatus(0);
+					_returnresult.setMessage("Could not retrieve Thrift client.");
+					returnresult.add(_returnresult);
+					return returnresult;
+				}
+				
+				try
+		        {	
+		            JBCCResult returnresultback = myJBCCClient.select(TBCName, condition);
+		            returnresult.add(returnresultback);
+		        } catch (JBCCException e){
+		        	_returnresult.setStatus(0);
+					_returnresult.setMessage(e.getMessage());
+					returnresult.add(_returnresult);
+					return returnresult;
+		        }
+				
+			}
+	
+		    return returnresult;
+		
+	}
+	
+	public void asyncSelectFromBC (String TBCName, String condition, ArrayList<JBCCResult> results) throws TException
+	{
+		
+			JBCCResult returnresult = new JBCCResult();
+			
+			if (asyncConnectionHashMap.isEmpty())
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("No open connections.");
+				results.add(returnresult);
+				return;
+			}
+			
+			for (Map.Entry<String,  AsyncConnection> entry : asyncConnectionHashMap.entrySet()) 
+			{
+				if (entry.getValue() == null)
+				{
+					returnresult.setStatus(0);
+					returnresult.setMessage("Could not retrieve Thrift client.");
+					results.add(returnresult);
+					return;
+				}
+		
+				AsyncSelectRequest _selectRequest = new AsyncSelectRequest();
+				_selectRequest.set_condition(condition);
+				_selectRequest.set_TBCName(TBCName);
+				_selectRequest.setResults(results);
+		        entry.getValue().req(_selectRequest);
+
+			}
+	
+		    return;
+		
+	}
+	
+	
+	
+	
+	/**
+	 * 
+	 * @param TBCName 区块链名称
+	 * @param condition SQL where 字符串
+	 * @return JBCCResult.status=0为成常，1为异常，JBCCResult.message为QueryResult类的JSON序列华串
+	 * @throws TException Thrift异常
+	 */
+	public JBCCResult fastselectFromBC (String TBCName, String condition) throws TException
+	{
+			JBCCResult returnresult = new JBCCResult();
+			
+			if (syncConnectionHashMap.isEmpty())
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("No open connections.");
+				return returnresult;
+			}
+			
+			if (condition.contains(";"))
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("Illegal conditional statement");
+				return returnresult;
+			}
+			
+			
+			Random       random    = new Random();
+			List<String> keys      = new ArrayList<String>(syncConnectionHashMap.keySet());
+			String       randomKey = keys.get( random.nextInt(keys.size()) );
+			
+			
+			JBCCService.Client myJBCCClient=syncConnectionHashMap.get(randomKey).get_client();
+			
+			if (myJBCCClient == null)
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("Could not retrieve Thrift client.");
+				return returnresult;
+			}
+			
+			try
+	        {	
+	            returnresult = myJBCCClient.fselect(TBCName, condition);   
+	        } catch (JBCCException e){
+	        	returnresult.setStatus(0);
+				returnresult.setMessage(e.getMessage());
+				return returnresult;
+	        }
+			
+
+			returnresult.setStatus(1);
+		    return returnresult;
+		
+	}
+	
+	/**创建和注册TBC数据结构
+	 * 
+	 * @param TBCName TBC名称
+	 * @param tableDef TBC数据结构定义，格式为Key: 字段名 Value: Java基本数据类的simple class name. 
+	 * @return JBCCResult.status=0为成常，1为异常
+	 * @throws TException Thrift异常
+	 */
+	public List<JBCCResult> createTBC(String TBCName, Map<String,String> tableDef) throws TException
+	{
+		
+		ArrayList<JBCCResult> returnresult = new ArrayList<JBCCResult>();
+		JBCCResult _returnresult = new JBCCResult();
+		
+		if (syncConnectionHashMap.isEmpty())
+		{
+			_returnresult.setStatus(0);
+			_returnresult.setMessage("No open connections.");
+			returnresult.add(_returnresult);
+			return returnresult;
+		}
+		
+		String jsonString = JSON.toJSONString(this.maptoJSON(tableDef));
+		
+		/*TDLValidateResult tdlValidateResult = TDLParser.validateTableJson(ABCdef);
+		
+		if (!tdlValidateResult.getSuccess())
+		{
+			_returnresult.setStatus(0);
+			_returnresult.setMessage("Table creation string invalid format.");
+			returnresult.add(_returnresult);
+			return returnresult;
+		} */
+		
+		for (Map.Entry<String,  ConnectionStruct> entry : syncConnectionHashMap.entrySet()) 
+		{
+			
+			JBCCService.Client myJBCCClient=entry.getValue().get_client();
+			
+			if (myJBCCClient == null)
+			{
+				_returnresult.setStatus(0);
+				_returnresult.setMessage("Could not retrieve Thrift client.");
+				returnresult.add(_returnresult);
+				return returnresult;
+			}
+			
+			try
+	        {	
+				JBCCResult returnresultback = myJBCCClient.createTBC(TBCName, jsonString);  
+				returnresult.add(returnresultback);
+	            
+	        } catch (JBCCException e){
+	        	_returnresult.setStatus(0);
+				_returnresult.setMessage(e.getMessage());
+				returnresult.add(_returnresult);
+				return returnresult;
+	        }
+		}
+
+	    return returnresult;
+		
+	}
+	
+	private JSONObject maptoJSON (Map<String,String> map)
+	{
+		JSONObject jsonObj = new JSONObject();
+		for (Map.Entry<String,  String> entry : map.entrySet())
+		{
+			jsonObj.put(entry.getKey(), entry.getValue());
+		}
+		return jsonObj;
+	}
+	
+	private JSONObject maptoJSONObject (Map<String, Object> map)
+	{
+		JSONObject jsonObj = new JSONObject();
+		for (Map.Entry<String, Object> entry : map.entrySet())
+		{
+			jsonObj.put(entry.getKey(), entry.getValue());
+		}
+		return jsonObj;
+	}
+	
+	/**创建和注册TBC数据结构
+	 * 
+	 * @param ABCName ABC名称
+	 * @param tableDef TBC数据结构定义，格式为Key: 字段名 Value: Java基本数据类的simple class name. 
+	 * @return JBCCResult.status=0为成常，1为异常
+	 * @throws TException Thrift异常
+	 */
+	public List<JBCCResult> createABC(String ABCName, Map<String,String> tableDef) throws TException
+	{
+			ArrayList<JBCCResult> returnresult = new ArrayList<JBCCResult>();
+			JBCCResult _returnresult = new JBCCResult();
+			
+			if (syncConnectionHashMap.isEmpty())
+			{
+				_returnresult.setStatus(0);
+				_returnresult.setMessage("No open connections.");
+				returnresult.add(_returnresult);
+				return returnresult;
+			}
+			
+			String jsonString = JSON.toJSONString(this.maptoJSON(tableDef));
+			
+			/*TDLValidateResult tdlValidateResult = TDLParser.validateTableJson(ABCdef);
+			
+			if (!tdlValidateResult.getSuccess())
+			{
+				_returnresult.setStatus(0);
+				_returnresult.setMessage("Table creation string invalid format.");
+				returnresult.add(_returnresult);
+				return returnresult;
+			} */
+			
+			for (Map.Entry<String,  ConnectionStruct> entry : syncConnectionHashMap.entrySet()) 
+			{
+				
+				JBCCService.Client myJBCCClient=entry.getValue().get_client();
+				
+				if (myJBCCClient == null)
+				{
+					_returnresult.setStatus(0);
+					_returnresult.setMessage("Could not retrieve Thrift client.");
+					returnresult.add(_returnresult);
+					return returnresult;
+				}
+				
+				try
+		        {	
+					JBCCResult returnresultback = myJBCCClient.createABC(ABCName, jsonString);  
+					returnresult.add(returnresultback);
+		            
+		        } catch (JBCCException e){
+		        	_returnresult.setStatus(0);
+					_returnresult.setMessage(e.getMessage());
+					returnresult.add(_returnresult);
+					return returnresult;
+		        }
+			}
+
+		    return returnresult;
+		
+	}
+	
+	public int getDEFAULTMAXCLIENT() {
+		return DEFAULTMAXCLIENT;
+	}
+
+
+	public void setDEFAULTMAXCLIENT(int dEFAULTMAXCLIENT) {
+		DEFAULTMAXCLIENT = dEFAULTMAXCLIENT;
+	}
+
+
+	public int getDEFAULTMAXCLIENTPERTHREAD() {
+		return DEFAULTMAXCLIENTPERTHREAD;
+	}
+
+
+	public void setDEFAULTMAXCLIENTPERTHREAD(int dEFAULTMAXCLIENTPERTHREAD) {
+		DEFAULTMAXCLIENTPERTHREAD = dEFAULTMAXCLIENTPERTHREAD;
+	}
+}

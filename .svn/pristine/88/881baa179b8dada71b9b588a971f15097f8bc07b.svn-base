@@ -1,0 +1,104 @@
+package tutorial;
+
+import org.apache.thrift.TException;
+import org.apache.thrift.async.AsyncMethodCallback;
+import org.apache.thrift.async.TAsyncClientManager;
+import org.apache.thrift.protocol.TCompactProtocol;
+import org.apache.thrift.protocol.TProtocolFactory;
+import org.apache.thrift.transport.TNonblockingSocket;
+import org.apache.thrift.transport.TNonblockingTransport;
+import tutorial.MultiplicationService;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+public class AsynClient {
+
+    public static final String SERVER_IP = "localhost";
+    public static final int SERVER_PORT = 8090;
+    public static final int TIMEOUT = 30;
+    public static final int THREAD_NUM = 8;
+
+    public void startClient() {
+        try {
+            System.out.println("Client start .....");
+            CountDownLatch latch = new CountDownLatch(THREAD_NUM);
+
+            // We only need one protocol factory
+            TProtocolFactory tprotocol = new TCompactProtocol.Factory();
+
+            long start = System.currentTimeMillis();
+            for (int i = 0; i < THREAD_NUM; i++) {
+                TNonblockingTransport transport = new TNonblockingSocket(SERVER_IP, SERVER_PORT, TIMEOUT);
+                MultiplicationService.AsyncClient asyncClient = new MultiplicationService.AsyncClient(tprotocol,
+                        new TAsyncClientManager(), transport);
+                new Thread(new AsynSendTask(asyncClient, new AsynCallback(latch))).start();
+            }
+
+            latch.await(300, TimeUnit.SECONDS);
+            long elapsedTime = System.currentTimeMillis() - start;
+
+            System.out.println("elapsed time is (s): " + elapsedTime / 1000);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        System.out.println("startClient end.");
+    }
+
+    public class AsynSendTask implements Runnable {
+
+        private MultiplicationService.AsyncClient asyncClient;
+        private AsynCallback callBack;
+
+        public AsynSendTask(MultiplicationService.AsyncClient asyncClient, AsynCallback callBack) {
+            this.asyncClient = asyncClient;
+            this.callBack = callBack;
+        }
+
+        @Override
+        public void run() {
+            try {
+                //for (int i = 0; i < 10; i++) {
+                   asyncClient.multiply(2, 3, callBack);
+                //}
+            } catch (TException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public class AsynCallback implements AsyncMethodCallback<MultiplicationService.AsyncClient.multiply_call> {
+        private CountDownLatch latch;
+
+        public AsynCallback(CountDownLatch latch) {
+            this.latch = latch;
+        }
+
+        @Override
+        public void onComplete(MultiplicationService.AsyncClient.multiply_call response) {
+            System.out.println("onComplete");
+            try {
+                //TimeUnit.SECONDS.sleep(10);
+                System.out.println("AsynCall result =:" + response.getResult());
+            } catch (TException e) {
+                e.printStackTrace();
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                latch.countDown();
+            }
+        }
+
+        @Override
+        public void onError(Exception exception) {
+            System.out.println("onError :" + exception.getMessage());
+            latch.countDown();
+        }
+    }
+
+    public static void main(String[] args) {
+        AsynClient client = new AsynClient();
+        client.startClient();
+    }
+}

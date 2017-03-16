@@ -1,0 +1,288 @@
+package com.tiandetech.jbcc.thrift;
+
+import java.util.ArrayList;
+
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.transport.TSocket;
+import org.apache.thrift.transport.TTransport;
+
+
+public class JBCCClient {
+	
+	private static final JBCCClient instance = new JBCCClient();
+	private ArrayList<ConnectionStruct> connectionStructList = new ArrayList<ConnectionStruct>();
+	
+	
+	private JBCCClient() {
+	}
+	
+	
+	public static JBCCClient getInstance(){
+        return instance;
+    }
+	
+	//Change to service discovery
+	private JBCCResult ConnectToService(String serviceName) throws TException
+	{
+		
+			TTransport transport;
+			transport = new TSocket("localhost", 9090);
+			transport.open();
+			TProtocol protocol = new TBinaryProtocol(transport);
+			JBCCService.Client myJBCCClient=new JBCCService.Client(protocol);
+			ConnectionStruct _connectionStruct = new ConnectionStruct(myJBCCClient, transport, protocol);
+			connectionStructList.add(_connectionStruct);
+			JBCCResult _jbccresult = new JBCCResult();
+			return _jbccresult;
+	}
+	
+	public JBCCResult openConnection(String servicename) throws TException
+	{
+		return ConnectToService(servicename);
+	}
+	
+	public JBCCResult closeConnection()
+	{
+		JBCCResult _jbccresult = new JBCCResult();
+		
+		for (ConnectionStruct _connectionStruct : connectionStructList)
+		{
+			_connectionStruct.get_transport().close();
+
+		}
+		connectionStructList.clear();
+		
+		return _jbccresult;
+	}
+	
+	
+	public JBCCResult insertToBC (String content, String TBCName) throws TException
+	{
+		
+			JBCCResult returnresult = new JBCCResult();
+			
+			if (connectionStructList.isEmpty())
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("No open connections.");
+				return returnresult;
+			}
+			
+			for (ConnectionStruct _connectionStruct : connectionStructList)
+			{
+				
+				JBCCService.Client myJBCCClient=_connectionStruct.get_client();
+				
+				if (myJBCCClient == null)
+				{
+					returnresult.setStatus(0);
+					returnresult.setMessage("Could not retrieve Thrift client.");
+					return returnresult;
+				}
+				
+				try
+		        {	
+		            returnresult = myJBCCClient.insert(content, TBCName);   
+		        } catch (JBCCException e){
+		        	returnresult.setStatus(0);
+					returnresult.setMessage(e.getMessage());
+					return returnresult;
+		        }
+			}
+			
+			returnresult.setStatus(1);
+		    return returnresult;
+        
+		
+	} 
+	
+	public JBCCResult selectFromBC (String TBCName, String condition) throws TException
+	{
+		
+			JBCCResult returnresult = new JBCCResult();
+			
+			if (connectionStructList.isEmpty())
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("No open connections.");
+				return returnresult;
+			}
+			
+			for (ConnectionStruct _connectionStruct : connectionStructList)
+			{
+
+				
+				JBCCService.Client myJBCCClient=_connectionStruct.get_client();
+				
+				if (myJBCCClient == null)
+				{
+					returnresult.setStatus(0);
+					returnresult.setMessage("Could not retrieve Thrift client.");
+					return returnresult;
+				}
+				
+				try
+		        {	
+		            returnresult = myJBCCClient.select(TBCName, condition);   
+		        } catch (JBCCException e){
+		        	returnresult.setStatus(0);
+					returnresult.setMessage(e.getMessage());
+					return returnresult;
+		        }
+				
+			}
+	
+			returnresult.setStatus(1);
+		    return returnresult;
+		
+	}
+	
+	
+	public JBCCResult fastselectFromBC (String TBCName, String condition) throws TException
+	{
+			JBCCResult returnresult = new JBCCResult();
+			
+			if (connectionStructList.isEmpty())
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("No open connections.");
+				return returnresult;
+			}
+			
+			for (ConnectionStruct _connectionStruct : connectionStructList)
+			{
+				
+				JBCCService.Client myJBCCClient=_connectionStruct.get_client();
+				
+				if (myJBCCClient == null)
+				{
+					returnresult.setStatus(0);
+					returnresult.setMessage("Could not retrieve Thrift client.");
+					return returnresult;
+				}
+				
+				try
+		        {	
+		            returnresult = myJBCCClient.fselect(TBCName, condition);   
+		        } catch (JBCCException e){
+		        	returnresult.setStatus(0);
+					returnresult.setMessage(e.getMessage());
+					return returnresult;
+		        }
+				
+			}
+
+			returnresult.setStatus(1);
+		    return returnresult;
+		
+	}
+	
+	
+	public JBCCResult createTBC(String TBCdef) throws TException
+	{
+		
+			JBCCResult returnresult = new JBCCResult();
+			
+			if (connectionStructList.isEmpty())
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("No open connections.");
+				return returnresult;
+			}
+			
+			for (ConnectionStruct _connectionStruct : connectionStructList)
+			{
+				JBCCService.Client myJBCCClient=_connectionStruct.get_client();
+				
+				if (myJBCCClient == null)
+				{
+					returnresult.setStatus(0);
+					returnresult.setMessage("Could not retrieve Thrift client.");
+					return returnresult;
+				}
+				
+				try
+		        {	
+		            returnresult = myJBCCClient.createTBC(TBCdef);   
+		            
+		        } catch (JBCCException e){
+		        	returnresult.setStatus(0);
+					returnresult.setMessage(e.getMessage());
+					return returnresult;
+		        }
+			}
+
+			returnresult.setStatus(1);
+		    return returnresult;
+		
+	}
+	
+	
+	public JBCCResult createABC(String ABCdef) throws TException
+	{
+			JBCCResult returnresult = new JBCCResult();
+			
+			if (connectionStructList.isEmpty())
+			{
+				returnresult.setStatus(0);
+				returnresult.setMessage("No open connections.");
+				return returnresult;
+			}
+			
+			for (ConnectionStruct _connectionStruct : connectionStructList)
+			{
+				
+				JBCCService.Client myJBCCClient=_connectionStruct.get_client();
+				
+				if (myJBCCClient == null)
+				{
+					returnresult.setStatus(0);
+					returnresult.setMessage("Could not retrieve Thrift client.");
+					return returnresult;
+				}
+				
+				try
+		        {	
+		            returnresult = myJBCCClient.createABC(ABCdef);   
+		            
+		        } catch (JBCCException e){
+		        	returnresult.setStatus(0);
+					returnresult.setMessage(e.getMessage());
+					return returnresult;
+		        }
+			}
+
+			returnresult.setStatus(1);
+		    return returnresult;
+		
+	}
+	
+	 /**
+     * @param args
+     * @throws TException 
+     */
+    public static void main(String[] args) throws TException
+    {
+    	
+            JBCCClient myJBCCClient = JBCCClient.getInstance();
+            myJBCCClient.openConnection("TBCName");
+            long start=System.currentTimeMillis();
+            
+            for (int i=0;i<10000;i++)
+            {
+            	try
+            	{
+            		myJBCCClient.fastselectFromBC("TBC1", String.valueOf(i));
+            	}
+            	catch (JBCCException e){}
+            }
+            myJBCCClient.closeConnection();
+            long end=System.currentTimeMillis();
+            System.out.println((end-start)+" ms");
+
+    }
+
+
+}
